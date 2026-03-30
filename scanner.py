@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Nasdaq 100 MTF Ichimoku Scanner
-Calculates Ichimoku signals across 1m, 10m, 1H, 1D for all NDX 100 stocks.
+Ichi Scanner
+MTF Ichimoku + SQN(100) across 1m, 10m, 1H, 1D.
+Universe: Nasdaq 100 stocks + CME Group futures (Equity/Energy/Metals/Grains/Livestock/Rates/FX/Crypto)
 Output: ichimoku_scan.html  (open in any browser — sortable, filterable)
 
 Usage:
@@ -21,9 +22,9 @@ import yfinance as yf
 warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# NASDAQ 100 TICKERS
+# UNIVERSE — NDX 100 STOCKS
 # ─────────────────────────────────────────────────────────────────────────────
-_RAW_TICKERS = [
+_RAW_STOCKS = [
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA","AVGO","COST",
     "NFLX","ASML","AMD","AZN","TMUS","LIN","ISRG","CSCO","INTU","PEP",
     "QCOM","TXN","CMCSA","AMGN","HON","AMAT","MU","BKNG","PANW","VRTX",
@@ -36,7 +37,60 @@ _RAW_TICKERS = [
     "INTC","HOOD","PAYX","OKTA","ZM","RIVN","MDB","FANG","LCID","SIRI",
 ]
 _seen = set()
-TICKERS = [t for t in _RAW_TICKERS if not (t in _seen or _seen.add(t))]
+STOCKS = [t for t in _RAW_STOCKS if not (t in _seen or _seen.add(t))]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UNIVERSE — CME GROUP FUTURES  (ticker → (display name, category))
+# ─────────────────────────────────────────────────────────────────────────────
+FUTURES_META = {
+    # Equity Index — CME
+    "ES=F":  ("S&P 500 E-mini",      "Equity"),
+    "NQ=F":  ("Nasdaq 100 E-mini",   "Equity"),
+    "YM=F":  ("Dow Jones E-mini",    "Equity"),
+    "RTY=F": ("Russell 2000 E-mini", "Equity"),
+    # Energy — NYMEX
+    "CL=F":  ("WTI Crude Oil",       "Energy"),
+    "BZ=F":  ("Brent Crude Oil",     "Energy"),
+    "NG=F":  ("Natural Gas",         "Energy"),
+    "RB=F":  ("RBOB Gasoline",       "Energy"),
+    "HO=F":  ("Heating Oil",         "Energy"),
+    # Metals — COMEX / NYMEX
+    "GC=F":  ("Gold",                "Metals"),
+    "SI=F":  ("Silver",              "Metals"),
+    "HG=F":  ("Copper",              "Metals"),
+    "PL=F":  ("Platinum",            "Metals"),
+    "PA=F":  ("Palladium",           "Metals"),
+    # Grains — CBOT
+    "ZW=F":  ("Wheat",               "Grains"),
+    "ZC=F":  ("Corn",                "Grains"),
+    "ZS=F":  ("Soybeans",            "Grains"),
+    "ZL=F":  ("Soybean Oil",         "Grains"),
+    "ZM=F":  ("Soybean Meal",        "Grains"),
+    # Livestock — CME
+    "LE=F":  ("Live Cattle",         "Livestock"),
+    "GF=F":  ("Feeder Cattle",       "Livestock"),
+    "HE=F":  ("Lean Hogs",           "Livestock"),
+    # Interest Rates — CBOT
+    "ZB=F":  ("30-Year T-Bond",      "Rates"),
+    "ZN=F":  ("10-Year T-Note",      "Rates"),
+    "ZF=F":  ("5-Year T-Note",       "Rates"),
+    "ZT=F":  ("2-Year T-Note",       "Rates"),
+    # FX — CME
+    "6E=F":  ("Euro",                "FX"),
+    "6J=F":  ("Japanese Yen",        "FX"),
+    "6B=F":  ("British Pound",       "FX"),
+    "6C=F":  ("Canadian Dollar",     "FX"),
+    "6A=F":  ("Aussie Dollar",       "FX"),
+    "6S=F":  ("Swiss Franc",         "FX"),
+    "6N=F":  ("NZ Dollar",           "FX"),
+    # Crypto — CME
+    "BTC=F": ("Bitcoin",             "Crypto"),
+    "ETH=F": ("Ethereum",            "Crypto"),
+}
+FUTURES = list(FUTURES_META.keys())
+
+# Combined scan universe
+ALL_TICKERS = STOCKS + FUTURES
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ICHIMOKU ENGINE
@@ -244,6 +298,11 @@ def resample_10m(data_1m: dict) -> dict:
 # SCANNER
 # ─────────────────────────────────────────────────────────────────────────────
 def scan(tickers: list) -> list:
+    # Build name/category lookup for every ticker
+    meta = {t: (t, "NDX 100") for t in STOCKS}
+    for t, (name, cat) in FUTURES_META.items():
+        meta[t] = (name, cat)
+
     print("\nStep 1/3  Fetching market data")
     data_1m = fetch(tickers, "1m",  "5d",  "1m")
     data_1h = fetch(tickers, "1h",  "60d", "1H")
@@ -257,6 +316,8 @@ def scan(tickers: list) -> list:
     results = []
 
     for t in tickers:
+        name, category = meta.get(t, (t, "NDX 100"))
+
         # Price and daily change from 1D data
         price = change_pct = None
         df_d = data_1d.get(t)
@@ -292,6 +353,8 @@ def scan(tickers: list) -> list:
 
         results.append({
             "ticker":     t,
+            "name":       name,
+            "category":   category,
             "price":      price,
             "change_pct": change_pct,
             "1m":         i1m,
@@ -322,7 +385,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NDX 100 — MTF Ichimoku Scanner</title>
+<title>Ichi Scanner — MTF Ichimoku + SQN</title>
 <style>
 :root{
   --bg:#0d1117;--surface:#161b22;--surface2:#1f2937;--border:#30363d;
@@ -366,6 +429,9 @@ header{background:linear-gradient(135deg,#0d1117,#1a2332,#0d1117);border-bottom:
 .filter-btn.mixed.active{border-color:var(--yellow);background:var(--yellow-dim);color:var(--yellow);}
 .filter-btn.mbear.active{border-color:#fca5a5;background:rgba(252,165,165,.1);color:#fca5a5;}
 .filter-btn.fbear.active{border-color:var(--red);background:var(--red-dim);color:var(--red);}
+.cat-btn{border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;}
+.cat-btn:hover{color:var(--text);border-color:var(--accent);}
+.cat-btn.active{color:var(--text);border-color:var(--accent);background:rgba(88,166,255,.1);}
 .sep{color:var(--border);font-size:18px;user-select:none;}
 #search{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:12px;width:160px;outline:none;}
 #search:focus{border-color:var(--accent);}
@@ -430,6 +496,21 @@ tbody tr.hidden{display:none;}
 .mtf-score.all-bull{color:var(--green);}
 .mtf-score.all-bear{color:var(--red);}
 
+/* ── TICKER NAME ── */
+.ticker-name{font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;}
+
+/* ── CATEGORY BADGE ── */
+.cat-badge{display:inline-block;border-radius:4px;padding:2px 7px;font-size:10px;font-weight:700;letter-spacing:.6px;white-space:nowrap;}
+.cat-NDX    {background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.3);}
+.cat-Equity {background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.3);}
+.cat-Energy {background:rgba(249,115,22,.12);color:#f97316;border:1px solid rgba(249,115,22,.3);}
+.cat-Metals {background:rgba(245,158,11,.12);color:#f59e0b;border:1px solid rgba(245,158,11,.3);}
+.cat-Grains {background:rgba(132,204,22,.12);color:#84cc16;border:1px solid rgba(132,204,22,.3);}
+.cat-Livestock{background:rgba(251,146,60,.12);color:#fb923c;border:1px solid rgba(251,146,60,.3);}
+.cat-Rates  {background:rgba(45,212,191,.12);color:#2dd4bf;border:1px solid rgba(45,212,191,.3);}
+.cat-FX     {background:rgba(167,139,250,.12);color:#a78bfa;border:1px solid rgba(167,139,250,.3);}
+.cat-Crypto {background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.3);}
+
 /* ── SQN BADGE ── */
 .sqn-badge{display:inline-flex;align-items:center;gap:5px;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:.4px;cursor:default;}
 .sqn-badge .sqn-val{font-size:10px;opacity:.75;font-weight:600;}
@@ -470,8 +551,8 @@ tbody tr.hidden{display:none;}
 <header>
   <div class="header-row">
     <div class="header-left">
-      <h1>NDX 100 — MTF Ichimoku Scanner</h1>
-      <p>1-Minute &nbsp;·&nbsp; 10-Minute &nbsp;·&nbsp; 1-Hour &nbsp;·&nbsp; 1-Day &nbsp;·&nbsp; Nasdaq 100 Universe</p>
+      <h1>Ichi Scanner</h1>
+      <p>1m &nbsp;·&nbsp; 10m &nbsp;·&nbsp; 1H &nbsp;·&nbsp; 1D &nbsp;·&nbsp; Ichimoku + SQN(100) &nbsp;·&nbsp; NDX 100 &amp; CME Futures</p>
     </div>
     <div class="scan-time">
       Scanned: <strong id="ts">—</strong><br>
@@ -493,8 +574,20 @@ tbody tr.hidden{display:none;}
     <button class="filter-btn mbear" data-filter="Mostly Bear">Mostly Bear</button>
     <button class="filter-btn fbear" data-filter="Full Bear">Full Bear ▼▼▼▼</button>
     <span class="sep">|</span>
-    <input id="search" type="text" placeholder="Search ticker…" autocomplete="off">
-    <span class="count-display"><strong id="visible-count">—</strong> stocks shown</span>
+    <input id="search" type="text" placeholder="Search ticker or name…" autocomplete="off">
+    <span class="count-display"><strong id="visible-count">—</strong> shown</span>
+  </div>
+  <div class="controls-inner" style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px;">
+    <button class="cat-btn active" data-cat="all">All Markets</button>
+    <button class="cat-btn" data-cat="NDX 100">NDX 100</button>
+    <button class="cat-btn" data-cat="Equity">Equity</button>
+    <button class="cat-btn" data-cat="Energy">Energy</button>
+    <button class="cat-btn" data-cat="Metals">Metals</button>
+    <button class="cat-btn" data-cat="Grains">Grains</button>
+    <button class="cat-btn" data-cat="Livestock">Livestock</button>
+    <button class="cat-btn" data-cat="Rates">Rates</button>
+    <button class="cat-btn" data-cat="FX">FX</button>
+    <button class="cat-btn" data-cat="Crypto">Crypto</button>
   </div>
 </div>
 
@@ -503,6 +596,7 @@ tbody tr.hidden{display:none;}
     <thead>
       <tr>
         <th data-col="ticker"  data-type="str">Ticker <span class="sort-icon">↕</span></th>
+        <th data-col="cat"     data-type="str">Cat. <span class="sort-icon">↕</span></th>
         <th data-col="price"   data-type="num">Price <span class="sort-icon">↕</span></th>
         <th data-col="chg"     data-type="num">Chg% <span class="sort-icon">↕</span></th>
         <th data-col="1m"      data-type="sig">1m <span class="sort-icon">↕</span></th>
@@ -515,7 +609,7 @@ tbody tr.hidden{display:none;}
       </tr>
     </thead>
     <tbody id="tbody">
-      <tr><td colspan="10" style="text-align:center;padding:40px;color:var(--muted);">Loading…</td></tr>
+      <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--muted);">Loading…</td></tr>
     </tbody>
   </table>
   <div class="no-results" id="no-results" style="display:none;">
@@ -598,11 +692,27 @@ function sqnBadge(s){
     s.label+'<span class="sqn-val">('+sign+s.value+')</span></span>';
 }
 
+function catBadge(cat){
+  const short = cat === "NDX 100" ? "NDX" :
+                cat === "Equity"   ? "EQ"  :
+                cat === "Livestock"? "LIVE": cat;
+  const cls = "cat-"+cat.replace(/ /g,"");
+  return '<span class="cat-badge '+cls+'">'+short+'</span>';
+}
+
+function tickerCell(row){
+  const link = '<a href="https://finance.yahoo.com/quote/'+row.ticker+'" target="_blank">'+row.ticker+'</a>';
+  const sub  = row.category !== "NDX 100"
+    ? '<div class="ticker-name">'+row.name+'</div>' : '';
+  return link + sub;
+}
+
 // ── RENDER ────────────────────────────────────────────────────────────────
 let currentData   = [...DATA];
 let sortCol       = "bulls";
 let sortDir       = -1;   // -1 = desc, 1 = asc
 let activeFilter  = "all";
+let activeCat     = "all";
 let searchText    = "";
 
 function getSortVal(row, col){
@@ -617,6 +727,7 @@ function getSortVal(row, col){
     case "bulls":   return row.bulls ?? -1;
     case "align":   return ALIGN_ORDER[row.alignment ?? "N/A"];
     case "sqn":     return row.sqn?.value ?? -Infinity;
+    case "cat":     return row.category ?? "";
     default:        return 0;
   }
 }
@@ -635,9 +746,15 @@ function matchFilter(row){
   return row.alignment === activeFilter;
 }
 
+function matchCat(row){
+  if(activeCat === "all") return true;
+  return row.category === activeCat;
+}
+
 function matchSearch(row){
   if(!searchText) return true;
-  return row.ticker.toLowerCase().includes(searchText);
+  return row.ticker.toLowerCase().includes(searchText) ||
+         (row.name && row.name.toLowerCase().includes(searchText));
 }
 
 function renderTable(){
@@ -647,13 +764,14 @@ function renderTable(){
   let visible = 0;
 
   for(const row of currentData){
-    const show = matchFilter(row) && matchSearch(row);
+    const show = matchFilter(row) && matchCat(row) && matchSearch(row);
     const tr = document.createElement("tr");
     if(!show) tr.classList.add("hidden");
     else visible++;
 
     tr.innerHTML =
-      '<td class="ticker-cell"><a href="https://finance.yahoo.com/quote/'+row.ticker+'" target="_blank">'+row.ticker+'</a></td>'+
+      '<td class="ticker-cell">'+tickerCell(row)+'</td>'+
+      '<td>'+catBadge(row.category||"NDX 100")+'</td>'+
       '<td class="price-cell">'+(row.price != null ? "$"+row.price.toFixed(2) : "—")+'</td>'+
       '<td>'+chgCell(row.change_pct)+'</td>'+
       '<td>'+badge(row["1m"])+'</td>'+
@@ -717,6 +835,15 @@ document.querySelectorAll(".filter-btn").forEach(btn=>{
   });
 });
 
+document.querySelectorAll(".cat-btn").forEach(btn=>{
+  btn.addEventListener("click",()=>{
+    document.querySelectorAll(".cat-btn").forEach(b=>b.classList.remove("active"));
+    btn.classList.add("active");
+    activeCat = btn.dataset.cat;
+    renderTable();
+  });
+});
+
 document.getElementById("search").addEventListener("input", e=>{
   searchText = e.target.value.trim().toLowerCase();
   renderTable();
@@ -765,10 +892,11 @@ def generate_html(results: list, timestamp: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
     print("=" * 60)
-    print("  NDX 100 MTF Ichimoku Scanner")
+    print("  Ichi Scanner")
+    print(f"  NDX 100 ({len(STOCKS)}) + CME Futures ({len(FUTURES)}) = {len(ALL_TICKERS)} instruments")
     print("=" * 60)
 
-    results   = scan(TICKERS)
+    results   = scan(ALL_TICKERS)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     html      = generate_html(results, timestamp)
 
